@@ -579,9 +579,6 @@ video {
 .mt-4 {
   margin-top: 1rem;
 }
-.inline {
-  display: inline;
-}
 .flex {
   display: flex;
 }
