@@ -1,0 +1,14 @@
+{
+  "app\\(app)\\board\\page.tsx -> @/lib/auth": {
+    "id": "app\\(app)\\board\\page.tsx -> @/lib/auth",
+    "files": []
+  },
+  "app\\(app)\\board\\page.tsx -> @/lib/firebaseClient": {
+    "id": "app\\(app)\\board\\page.tsx -> @/lib/firebaseClient",
+    "files": []
+  },
+  "app\\(app)\\board\\page.tsx -> firebase/firestore": {
+    "id": "app\\(app)\\board\\page.tsx -> firebase/firestore",
+    "files": []
+  }
+}

@@ -1,0 +1,57 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() { return request.auth != null; }
+    function isAdmin() { return isSignedIn() && request.auth.token.role == 'admin'; }
+    function isSelf(uid) { return isSignedIn() && request.auth.uid == uid; }
+
+    match /users/{uid} {
+      allow read: if isSignedIn();
+      // Profile writes: admin only, or user updating own name/telegram_chat_id
+      allow create: if isAdmin();
+      allow update: if isAdmin() || (isSelf(uid) && request.resource.data.diff(resource.data).changedKeys().hasOnly(['telegram_chat_id', 'name', 'roomId']));
+      allow delete: if isAdmin();
+    }
+    match /rooms/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+    match /tasks/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+    match /completions/{docId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn();
+    }
+    match /swaps/{docId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.fromUserId == request.auth.uid;
+      allow update: if isSignedIn() && (
+        resource.data.toUserId == request.auth.uid ||
+        isAdmin()
+      );
+    }
+    match /meals/{docId} {
+      allow read: if isSignedIn();
+      allow create, update: if isAdmin() || docId.matches(request.auth.uid + '_.*');
+      allow delete: if isAdmin() || docId.matches(request.auth.uid + '_.*');
+    }
+    match /bazar/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+    // Board / Announcements – hostel chat
+    match /board/{docId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.authorId == request.auth.uid;
+      // delete own message, or admin can delete any
+      allow delete: if isSignedIn() && (resource.data.authorId == request.auth.uid || isAdmin());
+      // only admin can pin/unpin
+      allow update: if isAdmin()
+        || (isSignedIn() && resource.data.authorId == request.auth.uid
+            && request.resource.data.diff(resource.data).changedKeys().hasOnly(['text']));
+    }
+  }
+}
