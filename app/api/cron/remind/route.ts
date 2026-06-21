@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { adminDb } from '@/lib/firebaseAdmin'
+import { sendTelegram } from '@/lib/telegram'
 
 function todayISO(){ return new Date().toISOString().slice(0,10) }
 function dateDiff(a:string,b:string){ return Math.round((new Date(a+'T12:00:00').getTime() - new Date(b+'T12:00:00').getTime())/86400000) }
+function addDays(s:string, n:number){ const d = new Date(s+'T12:00:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10) }
 
 function getAssignees(task:any, dateStr:string){
   const targets = task.targets || []
@@ -23,44 +25,62 @@ export async function GET(req: NextRequest){
   if (secret !== process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({error:'unauthorized'}, {status:401})
   }
-  const token = process.env.TELEGRAM_BOT_TOKEN
-  if(!token) return NextResponse.json({error:'no telegram token'}, {status:500})
 
   const today = todayISO()
+  const advanceDate = addDays(today, 7)
+
   const tasksSnap = await adminDb.collection('tasks').get()
   const usersSnap = await adminDb.collection('users').get()
   const usersMap: any = {}
   usersSnap.forEach(d=> usersMap[d.id] = d.data())
 
-  // collect duties per member
-  const duties: Record<string, string[]> = {}
-  tasksSnap.forEach(tDoc=>{
-    const t = {id: tDoc.id, ...tDoc.data()} as any
-    const assignees = getAssignees(t, today)
-    assignees.forEach((assignee:string)=>{
-      if(t.assignType==='member'){
-        duties[assignee] = duties[assignee] || []; duties[assignee].push(t.title)
-      } else {
-        // room task -> notify all members in that room
-        Object.entries(usersMap).forEach(([uid, u]:any)=>{
-          if(u.roomId === assignee){
-            duties[uid] = duties[uid] || []; duties[uid].push(`${t.title} (${usersMap[assignee]?.name||assignee})`)
-          }
-        })
-      }
-    })
-  })
+  type Duty = { title: string, date: string, assignType: string }
+  const dutiesToday: Record<string, Duty[]> = {}
+  const dutiesAdvance: Record<string, Duty[]> = {}
 
-  let sent = 0
-  for(const [uid, taskList] of Object.entries(duties)){
+  const collect = (dateStr: string, bucket: Record<string, Duty[]>) => {
+    tasksSnap.forEach(tDoc=>{
+      const t = {id: tDoc.id, ...tDoc.data()} as any
+      const assignees = getAssignees(t, dateStr)
+      assignees.forEach((assignee:string)=>{
+        if(t.assignType==='member'){
+          bucket[assignee] = bucket[assignee] || []
+          bucket[assignee].push({ title: t.title, date: dateStr, assignType: t.assignType })
+        } else {
+          // room task -> notify all members in that room
+          Object.entries(usersMap).forEach(([uid, u]:any)=>{
+            if(u.roomId === assignee){
+              bucket[uid] = bucket[uid] || []
+              bucket[uid].push({ title: `${t.title} (${usersMap[assignee]?.name||assignee})`, date: dateStr, assignType: t.assignType })
+            }
+          })
+        }
+      })
+    })
+  }
+
+  collect(today, dutiesToday)
+  collect(advanceDate, dutiesAdvance)
+
+  let sentToday = 0, sentAdvance = 0
+
+  // Morning reminder – today
+  for(const [uid, taskList] of Object.entries(dutiesToday)){
     const u = usersMap[uid]
     if(!u?.telegram_chat_id) continue
-    const text = `🔔 <b>HostelMate Duty Today</b>\n${taskList.map(x=>`• ${x}`).join('\n')}\n\nMark done in the app!`
-    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ chat_id: u.telegram_chat_id, text, parse_mode: 'HTML'})
-    })
-    sent++
+    const text = `🔔 <b>HostelMate – Duty Today</b>\n${taskList.map(x=>`• ${x.title}`).join('\n')}\n\nMark done in the app!`
+    const r = await sendTelegram(u.telegram_chat_id, text)
+    if(r.ok) sentToday++
   }
-  return NextResponse.json({ ok:true, sent, date: today })
+
+  // 7-day advance notice
+  for(const [uid, taskList] of Object.entries(dutiesAdvance)){
+    const u = usersMap[uid]
+    if(!u?.telegram_chat_id) continue
+    const text = `📅 <b>Upcoming Duty – 7 days notice</b>\nDate: ${advanceDate}\n${taskList.map(x=>`• ${x.title}`).join('\n')}\n\nYou can swap in the app if needed.`
+    const r = await sendTelegram(u.telegram_chat_id, text)
+    if(r.ok) sentAdvance++
+  }
+
+  return NextResponse.json({ ok:true, date: today, sent_today: sentToday, sent_advance_7d: sentAdvance, advance_date: advanceDate })
 }

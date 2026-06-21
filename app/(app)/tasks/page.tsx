@@ -2,7 +2,7 @@
 import AppShell from '@/components/AppShell'
 import { useAuthProfile } from '@/lib/auth'
 import { db } from '@/lib/firebaseClient'
-import { collection, doc, getDoc, getDocs, setDoc, deleteField } from 'firebase/firestore'
+import { collection, doc, getDocs, setDoc } from 'firebase/firestore'
 import { useEffect, useState } from 'react'
 import { addDays, completionDocId, getAssigneesForTaskOnDate, TaskDoc, todayISO } from '@/lib/schedule'
 
@@ -37,9 +37,11 @@ export default function TasksPage(){
   useEffect(()=>{ load() }, [])
 
   if(!profile) return null
-  const dates = [...Array(14)].map((_,i)=> addDays(todayISO(), i-2))
   const myUid = profile.uid
   const myRoom = profile.roomId
+
+  // show 7 days ago → 14 days forward
+  const dates = [...Array(22)].map((_,i)=> addDays(todayISO(), i-7))
 
   const rows: any[] = []
   tasks.forEach(t=>{
@@ -49,15 +51,20 @@ export default function TasksPage(){
         if(!isMine) return
         const compId = completionDocId(t.id, date, assignee)
         const done = !!completions[compId]
-        // swap audit
         const swap = swaps.find(s=>s.taskId===t.id && s.date===date && s.status==='accepted')
         rows.push({t, date, assignee, done, compId, swap})
       })
     })
   })
-  rows.sort((a,b)=>a.date.localeCompare(b.date))
+  rows.sort((a,b)=>b.date.localeCompare(a.date))
 
   const toggle = async (taskId:string, date:string, assignee:string, done:boolean) => {
+    // members can only tick recent tasks (±3 days), older is read-only
+    const daysOff = Math.abs(dateDiffDays(date, todayISO()))
+    if (profile.role !== 'admin' && daysOff > 3) {
+      alert('You can only mark tasks done within ±3 days. Contact admin for older entries.')
+      return
+    }
     const id = completionDocId(taskId, date, assignee)
     await setDoc(doc(db,'completions', id), {
       taskId, date, assigneeKey: assignee, done: !done, doneBy: myUid, doneAt: new Date().toISOString()
@@ -65,16 +72,21 @@ export default function TasksPage(){
     setCompletions(c=>({...c, [id]: !done}))
   }
 
+  const upcoming = rows.filter(r=> r.date >= todayISO())
+  const past = rows.filter(r=> r.date < todayISO())
+
   return <AppShell>
     <h1 className="text-2xl font-extrabold mb-1">My Tasks</h1>
-    <p className="text-slate-500 mb-4">Tick when done. Swap is audit-logged.</p>
-    <div className="card overflow-x-auto">
+    <p className="text-slate-500 mb-4">Tick when done. You can see 7 days history. You'll get Telegram notify 7 days before + morning of duty.</p>
+
+    <div className="card overflow-x-auto mb-4">
+      <h3 className="font-bold mb-2">Upcoming & Today</h3>
       <table className="w-full min-w-[600px]">
         <thead><tr><th>Date</th><th>Task</th><th>Assignee</th><th>Status</th><th></th></tr></thead>
         <tbody>
-          {rows.map(r=>{
+          {upcoming.sort((a,b)=>a.date.localeCompare(b.date)).map(r=>{
             const assigneeName = r.t.assignType==='member' ? (users[r.assignee]?.name||r.assignee) : (rooms[r.assignee]?.name||r.assignee)
-            return <tr key={r.compId}>
+            return <tr key={r.compId} className={r.date===todayISO() ? 'bg-indigo-50/50':''}>
               <td>{r.date}{r.date===todayISO() && ' • Today'}</td>
               <td><b>{r.t.title}</b><div className="text-slate-500 text-xs">{r.t.description}</div></td>
               <td>{assigneeName}
@@ -87,9 +99,34 @@ export default function TasksPage(){
               </td>
             </tr>
           })}
-          {rows.length===0 && <tr><td colSpan={5} className="text-slate-500">No tasks in this window.</td></tr>}
+          {upcoming.length===0 && <tr><td colSpan={5} className="text-slate-500">No upcoming tasks.</td></tr>}
         </tbody>
       </table>
     </div>
+
+    <div className="card overflow-x-auto">
+      <h3 className="font-bold mb-2">Past 7 Days</h3>
+      <table className="w-full min-w-[600px]">
+        <thead><tr><th>Date</th><th>Task</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          {past.map(r=>(
+            <tr key={r.compId} className="opacity-90">
+              <td>{r.date}</td>
+              <td><b>{r.t.title}</b></td>
+              <td>{r.done ? <span className="pill bg-emerald-100 text-emerald-700">Done</span> : <span className="pill bg-slate-200 text-slate-600">Missed</span>}</td>
+              <td>
+                <button className="btn btn-secondary !py-1 !px-2 text-xs" onClick={()=>toggle(r.t.id,r.date,r.assignee,r.done)} disabled={profile.role!=='admin' && Math.abs(dateDiffDays(r.date, todayISO()))>3}>
+                  {r.done?'Undo':'Mark done'}
+                </button>
+              </td>
+            </tr>
+          ))}
+          {past.length===0 && <tr><td colSpan={4} className="text-slate-500">No tasks in the past week.</td></tr>}
+        </tbody>
+      </table>
+      <p className="text-xs text-slate-500 mt-2">You can edit completions within ±3 days. Older entries: contact admin.</p>
+    </div>
   </AppShell>
 }
+
+function dateDiffDays(a:string,b:string){ return Math.round((new Date(a+'T12:00:00').getTime() - new Date(b+'T12:00:00').getTime())/86400000)}

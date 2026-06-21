@@ -41,3 +41,15 @@ export function getAssigneesForTaskOnDate(task: TaskDoc, dateStr: string): strin
 export function completionDocId(taskId: string, date: string, assigneeKey: string) {
   return `${taskId}_${date}_${assigneeKey}`
 }
+
+// New: get a full rotation preview
+export function getSchedulePreview(task: TaskDoc, days: number = 30, startDate?: string) {
+  const start = startDate || todayISO()
+  const out: { date: string, assignees: string[] }[] = []
+  for (let i = 0; i < days; i++) {
+    const d = addDays(start, i)
+    const a = getAssigneesForTaskOnDate(task, d)
+    if (a.length) out.push({ date: d, assignees: a })
+  }
+  return out
+}
