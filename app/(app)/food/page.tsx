@@ -2,7 +2,7 @@
 import AppShell from '@/components/AppShell'
 import { useAuthProfile } from '@/lib/auth'
 import { db } from '@/lib/firebaseClient'
-import { collection, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore'
+import { collection, doc, getDocs, query, setDoc, where } from 'firebase/firestore'
 import { useEffect, useState } from 'react'
 import { addDays, todayISO } from '@/lib/schedule'
 
@@ -31,6 +31,7 @@ export default function FoodPage(){
   const toggle = (date:string, key:'lunch'|'dinner', val:boolean) => {
     setMeals(s=>({...s, [date]: {...(s[date]||{lunch:true,dinner:true}), [key]: val}}))
   }
+
   const save = async (date:string) => {
     if(!profile) return
     const m = meals[date] || {lunch:true, dinner:true}
@@ -46,6 +47,7 @@ export default function FoodPage(){
     } catch(e:any){ alert(e.message) }
     setSaving(null)
   }
+
   const saveAll = async () => { for (const d of dates) await save(d) }
 
   return <AppShell>
@@ -87,25 +89,35 @@ export default function FoodPage(){
 
 function CostView({uid}:{uid:string}){
   const [month, setMonth] = useState(new Date().toISOString().slice(0,7))
-  const [myMeals, setMyMeals] = useState<any[]>([])
+  const [meals, setMeals] = useState<any[]>([])
   const [bazar, setBazar] = useState<any[]>([])
-  const [allMeals, setAllMeals] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState('')
 
   const load = async (m:string) => {
-    setLoading(true)
-    const start = m + '-01', end = m + '-31'
-    const [b, me, all] = await Promise.all([
-      getDocs(query(collection(db,'bazar'), where('date','>=',start), where('date','<=',end))),
-      getDocs(query(collection(db,'meals'), where('userId','==',uid), where('date','>=',start), where('date','<=',end))),
-      getDocs(query(collection(db,'meals'), where('date','>=',start), where('date','<=',end))),
-    ])
-    setBazar(b.docs.map(d=>d.data() as any))
-    setMyMeals(me.docs.map(d=>d.data() as any).sort((a:any,b:any)=>a.date.localeCompare(b.date)))
-    setAllMeals(all.docs.map(d=>d.data() as any))
+    if(!uid) return
+    setLoading(true); setErr('')
+    try {
+      const start = m + '-01', end = m + '-31'
+      // Query by date range only – no composite index needed
+      // Then filter my meals client-side
+      const [bSnap, mealsSnap] = await Promise.all([
+        getDocs(query(collection(db,'bazar'), where('date','>=',start), where('date','<=',end))),
+        getDocs(query(collection(db,'meals'), where('date','>=',start), where('date','<=',end))),
+      ])
+      const allMeals = mealsSnap.docs.map(d=>d.data() as any)
+      setMeals(allMeals)
+      setBazar(bSnap.docs.map(d=>d.data() as any))
+    } catch(e:any){
+      setErr(e.message || 'Failed to load')
+      console.error(e)
+    }
     setLoading(false)
   }
-  useEffect(()=>{ if(uid) load(month) }, [uid, month])
+  useEffect(()=>{ load(month) }, [uid, month])
+
+  const allMeals = meals
+  const myMeals = allMeals.filter(m=>m.userId === uid)
 
   const totalBazar = bazar.reduce((s,b)=> s + Number(b.amount||0), 0)
   const totalAllMeals = allMeals.reduce((s,m)=> s + (m.lunch?1:0) + (m.dinner?1:0), 0)
@@ -117,8 +129,11 @@ function CostView({uid}:{uid:string}){
     <div>
       <div className="card mb-3 flex flex-wrap items-end gap-3">
         <div><label className="label">Month</label><input type="month" className="input" value={month} onChange={e=>setMonth(e.target.value)} /></div>
+        <button className="btn btn-secondary" onClick={()=>load(month)} disabled={loading}>{loading?'Loading…':'Refresh'}</button>
         <div className="text-xs text-slate-500">Read-only. Meal ON/OFF is in the Meal Entry tab. Bazar is managed by admin.</div>
       </div>
+
+      {err && <div className="card mb-3 !border-red-200 !bg-red-50 text-red-700 text-sm">Failed to load costs: {err}</div>}
 
       <div className="grid sm:grid-cols-4 gap-3 mb-3">
         <div className="card"><div className="text-2xl font-extrabold">{myMealCount}</div><div className="text-slate-500 text-sm">My Meals</div></div>
@@ -134,7 +149,7 @@ function CostView({uid}:{uid:string}){
             <table className="w-full text-sm">
               <thead><tr><th>Date</th><th>Lunch</th><th>Dinner</th><th>Count</th></tr></thead>
               <tbody>
-                {myMeals.map((m:any)=>(
+                {myMeals.sort((a,b)=>a.date.localeCompare(b.date)).map((m:any)=>(
                   <tr key={m.date}>
                     <td>{m.date}</td>
                     <td>{m.lunch ? <span className="pill bg-emerald-100 text-emerald-700">ON</span> : <span className="pill bg-slate-200 text-slate-600">OFF</span>}</td>
@@ -142,7 +157,7 @@ function CostView({uid}:{uid:string}){
                     <td>{(m.lunch?1:0)+(m.dinner?1:0)}</td>
                   </tr>
                 ))}
-                {myMeals.length===0 && <tr><td colSpan={4} className="text-slate-500">{loading?'Loading…':'No meals recorded for this month.'}</td></tr>}
+                {myMeals.length===0 && <tr><td colSpan={4} className="text-slate-500">{loading?'Loading…':'No meals recorded for this month. Go to Meal Entry tab and hit Save.'}</td></tr>}
               </tbody>
             </table>
           </div>
