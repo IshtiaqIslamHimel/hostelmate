@@ -42,7 +42,7 @@ export default function TasksPage(){
   const myRoom = profile.roomId
   const today = todayISO()
 
-  // show 7 days ago → 14 days forward
+  // 7 days ago → 14 days forward
   const dates = [...Array(22)].map((_,i)=> addDays(today, i-7))
 
   const rows: any[] = []
@@ -59,25 +59,22 @@ export default function TasksPage(){
         const overdue = taskIsOverdue(date, today) && !done
         const fine = getFineForTask(t, date, done, today)
 
-        rows.push({
-          t, date, originalAssignee,
-          effectiveKind: eff.kind, effectiveId: eff.id,
-          swap: eff.swap,
-          done, compId, future, overdue, fine
-        })
+        rows.push({ t, date, originalAssignee, effectiveKind: eff.kind, effectiveId: eff.id, swap: eff.swap, done, compId, future, overdue, fine })
       })
     })
   })
   rows.sort((a,b)=>b.date.localeCompare(a.date))
 
   const toggle = async (taskId:string, date:string, originalAssignee:string, done:boolean, future:boolean) => {
+    // 1. cannot mark before due date
     if (future && profile.role !== 'admin') {
       alert('You cannot mark a task done before its due date.')
       return
     }
+    // 2. edit window = 1 day
     const daysOff = Math.abs(dateDiffDays(date, today))
-    if (profile.role !== 'admin' && daysOff > 3 && date < today) {
-      alert('You can only edit tasks within ±3 days (and not before due date). Contact admin.')
+    if (profile.role !== 'admin' && daysOff > 1) {
+      alert('You can only edit task completion within 1 day of the due date. Contact admin for older entries.')
       return
     }
     const id = completionDocId(taskId, date, originalAssignee)
@@ -90,10 +87,9 @@ export default function TasksPage(){
 
   const upcoming = rows.filter(r=> r.date >= today)
   const past = rows.filter(r=> r.date < today)
-
   const totalFine = rows.filter(r=>r.overdue).reduce((s,r)=> s + (r.fine||0), 0)
 
-  const renderRows = (list:any[], allowFutureMsg=true) => list.sort((a,b)=>a.date.localeCompare(b.date)).map(r=>{
+  const renderRows = (list:any[]) => list.sort((a,b)=>a.date.localeCompare(b.date)).map(r=>{
     const originalName = assigneeDisplay(r.t.assignType, r.originalAssignee, users, rooms)
     const effectiveName = r.effectiveKind === 'member'
       ? users[r.effectiveId]?.name || r.effectiveId
@@ -110,12 +106,10 @@ export default function TasksPage(){
         {r.future && <div className="text-[11px] text-slate-500">Not due yet</div>}
       </td>
       <td>{swapped ? effectiveName : originalName}</td>
-      <td>
-        {r.done ? <span className="pill bg-emerald-100 text-emerald-700">Done</span> :
-         r.overdue ? <span className="pill bg-red-100 text-red-700">Fine ৳{r.fine}</span> :
-         r.future ? <span className="pill bg-slate-200 text-slate-600">Upcoming</span> :
-         <span className="pill bg-orange-100 text-orange-800">Pending</span>}
-      </td>
+      <td>{r.done ? <span className="pill bg-emerald-100 text-emerald-700">Done</span> :
+           r.overdue ? <span className="pill bg-red-100 text-red-700">Fine ৳{r.fine}</span> :
+           r.future ? <span className="pill bg-slate-200 text-slate-600">Upcoming</span> :
+           <span className="pill bg-orange-100 text-orange-800">Pending</span>}</td>
       <td className="whitespace-nowrap">
         <button
           className={`btn !py-1.5 !px-3 text-xs ${r.done?'btn-secondary':''} disabled:opacity-40`}
@@ -133,7 +127,7 @@ export default function TasksPage(){
       <h1 className="text-2xl font-extrabold">My Tasks</h1>
       {totalFine > 0 && <div className="px-3 py-1.5 rounded-xl bg-red-600 text-white text-sm font-bold">Total Fine: ৳{totalFine}</div>}
     </div>
-    <p className="text-slate-500 mb-4">You can mark tasks done on the due date only (not before). Missed tasks get fined. Swap audit trail applied.</p>
+    <p className="text-slate-500 mb-4">Mark done on/after due date only. Edit allowed within 1 day. Missed = fine. Telegram notify: task created • 7 days before • morning of duty.</p>
 
     <div className="card overflow-x-auto mb-4">
       <h3 className="font-bold mb-2">Upcoming & Today</h3>
@@ -151,11 +145,11 @@ export default function TasksPage(){
       <table className="w-full min-w-[760px]">
         <thead><tr><th>Date</th><th>Task</th><th>Assignee</th><th>Status</th><th></th></tr></thead>
         <tbody>
-          {renderRows(past, false)}
+          {renderRows(past)}
           {past.length===0 && <tr><td colSpan={5} className="text-slate-500">No tasks in the past week.</td></tr>}
         </tbody>
       </table>
-      <p className="text-xs text-slate-500 mt-2">Mark-done is allowed only on/after the due date, and within ±3 days. Overdue unfinished tasks accrue the fine set by admin at task creation. Total fine shown at top-right.</p>
+      <p className="text-xs text-slate-500 mt-2">Mark-done allowed only on/after due date, and within 1 day. Overdue unfinished tasks accrue the fine set by admin.</p>
     </div>
   </AppShell>
 }
