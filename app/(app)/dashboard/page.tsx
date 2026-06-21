@@ -3,10 +3,9 @@ import AppShell from '@/components/AppShell'
 import { useAuthProfile } from '@/lib/auth'
 import { useEffect, useState } from 'react'
 import { db } from '@/lib/firebaseClient'
-import { collection, getDocs, query, where, doc, setDoc } from 'firebase/firestore'
+import { collection, getDocs, doc, setDoc } from 'firebase/firestore'
 import { getAssigneesForTaskOnDate, todayISO, TaskDoc, completionDocId } from '@/lib/schedule'
-import { resolveEffective } from '@/lib/schedule'
-import { resolveEffective as resolveSwap, isDutyMine, assigneeDisplay } from '@/lib/swap'
+import { resolveEffective as resolveSwap, assigneeDisplay } from '@/lib/swap'
 import Link from 'next/link'
 
 export default function Dashboard(){
