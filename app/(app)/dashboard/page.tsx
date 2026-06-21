@@ -27,7 +27,7 @@ export default function Dashboard(){
     const roomsMap:Record<string,any> = {}; roomsSnap.forEach(d=> roomsMap[d.id] = d.data()); setRooms(roomsMap)
     const tasks = tasksSnap.docs.map(d=>({id:d.id, ...d.data()} as TaskDoc))
     const completions: Record<string, boolean> = {}; compSnap.forEach(d=> completions[d.id] = !!(d.data() as any).done)
-    const swaps = swapSnap.docs.map(d=> ({id:d.id, ...d.data()}))
+    const swaps = swapSnap.docs.map(d=> ({id:d.id, ...d.data()} as any))
 
     const today = todayISO()
     let due = 0
