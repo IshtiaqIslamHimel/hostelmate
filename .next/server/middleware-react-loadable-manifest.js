@@ -1,1 +1,1 @@
-self.__REACT_LOADABLE_MANIFEST="{\"app\\\\(app)\\\\admin\\\\tasks\\\\page.tsx -> @/lib/firebaseClient\":{\"id\":\"app\\\\(app)\\\\admin\\\\tasks\\\\page.tsx -> @/lib/firebaseClient\",\"files\":[]},\"app\\\\(app)\\\\admin\\\\tasks\\\\page.tsx -> firebase/firestore\":{\"id\":\"app\\\\(app)\\\\admin\\\\tasks\\\\page.tsx -> firebase/firestore\",\"files\":[]}}"
+self.__REACT_LOADABLE_MANIFEST="{}"

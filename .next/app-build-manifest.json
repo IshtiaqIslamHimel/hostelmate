@@ -16,15 +16,10 @@
       "static/chunks/main-app.js",
       "static/chunks/app/(app)/dashboard/page.js"
     ],
-    "/(app)/admin/tasks/page": [
+    "/(app)/food/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/(app)/admin/tasks/page.js"
-    ],
-    "/(app)/admin/costs/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/(app)/admin/costs/page.js"
+      "static/chunks/app/(app)/food/page.js"
     ]
   }
 }

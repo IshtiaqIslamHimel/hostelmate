@@ -2,7 +2,7 @@
 import AppShell from '@/components/AppShell'
 import { useAuthProfile } from '@/lib/auth'
 import { db } from '@/lib/firebaseClient'
-import { collection, doc, getDocs, query, setDoc, where } from 'firebase/firestore'
+import { collection, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore'
 import { useEffect, useState } from 'react'
 import { addDays, todayISO } from '@/lib/schedule'
 
@@ -99,8 +99,7 @@ function CostView({uid}:{uid:string}){
     setLoading(true); setErr('')
     try {
       const start = m + '-01', end = m + '-31'
-      // Query by date range only – no composite index needed
-      // Then filter my meals client-side
+      // Query by date only – no composite index needed, filter my meals client-side
       const [bSnap, mealsSnap] = await Promise.all([
         getDocs(query(collection(db,'bazar'), where('date','>=',start), where('date','<=',end))),
         getDocs(query(collection(db,'meals'), where('date','>=',start), where('date','<=',end))),
@@ -116,11 +115,9 @@ function CostView({uid}:{uid:string}){
   }
   useEffect(()=>{ load(month) }, [uid, month])
 
-  const allMeals = meals
-  const myMeals = allMeals.filter(m=>m.userId === uid)
-
+  const myMeals = meals.filter(m=>m.userId === uid)
   const totalBazar = bazar.reduce((s,b)=> s + Number(b.amount||0), 0)
-  const totalAllMeals = allMeals.reduce((s,m)=> s + (m.lunch?1:0) + (m.dinner?1:0), 0)
+  const totalAllMeals = meals.reduce((s,m)=> s + (m.lunch?1:0) + (m.dinner?1:0), 0)
   const myMealCount = myMeals.reduce((s,m)=> s + (m.lunch?1:0) + (m.dinner?1:0), 0)
   const mealRate = totalAllMeals ? totalBazar / totalAllMeals : 0
   const myDue = myMealCount * mealRate
@@ -171,7 +168,7 @@ function CostView({uid}:{uid:string}){
                 <b>৳{b.amount}</b>
               </div>
             )}
-            {bazar.length===0 && <div className="text-slate-500">{loading?'Loading…':'No bazar entries yet.'}</div>}
+            {bazar.length===0 && <div className="text-slate-500">{loading?'Loading…':'No bazar expenses yet.'}</div>}
           </div>
           <div className="mt-3 pt-3 border-t border-slate-200 text-sm">
             <div className="flex justify-between"><span>Total Bazar</span><b>৳{totalBazar.toFixed(0)}</b></div>
