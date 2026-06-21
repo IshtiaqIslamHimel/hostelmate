@@ -4,7 +4,7 @@ import { useAuthProfile } from '@/lib/auth'
 import { db } from '@/lib/firebaseClient'
 import { collection, doc, getDocs, setDoc } from 'firebase/firestore'
 import { useEffect, useState } from 'react'
-import { addDays, completionDocId, getAssigneesForTaskOnDate, TaskDoc, todayISO } from '@/lib/schedule'
+import { addDays, completionDocId, getAssigneesForTaskOnDate, TaskDoc, todayISO, getFineForTask, taskIsFuture, taskIsOverdue } from '@/lib/schedule'
 import { resolveEffective, isDutyMine, assigneeDisplay, type SwapDoc } from '@/lib/swap'
 
 type UserMap = Record<string, {name:string, roomId?:string|null}>
@@ -40,9 +40,10 @@ export default function TasksPage(){
   if(!profile) return null
   const myUid = profile.uid
   const myRoom = profile.roomId
+  const today = todayISO()
 
   // show 7 days ago → 14 days forward
-  const dates = [...Array(22)].map((_,i)=> addDays(todayISO(), i-7))
+  const dates = [...Array(22)].map((_,i)=> addDays(today, i-7))
 
   const rows: any[] = []
   tasks.forEach(t=>{
@@ -54,23 +55,29 @@ export default function TasksPage(){
 
         const compId = completionDocId(t.id, date, originalAssignee)
         const done = !!completions[compId]
+        const future = taskIsFuture(date, today)
+        const overdue = taskIsOverdue(date, today) && !done
+        const fine = getFineForTask(t, date, done, today)
+
         rows.push({
-          t, date,
-          originalAssignee,
-          effectiveKind: eff.kind,
-          effectiveId: eff.id,
+          t, date, originalAssignee,
+          effectiveKind: eff.kind, effectiveId: eff.id,
           swap: eff.swap,
-          done, compId
+          done, compId, future, overdue, fine
         })
       })
     })
   })
   rows.sort((a,b)=>b.date.localeCompare(a.date))
 
-  const toggle = async (taskId:string, date:string, originalAssignee:string, done:boolean) => {
-    const daysOff = Math.abs(dateDiffDays(date, todayISO()))
-    if (profile.role !== 'admin' && daysOff > 3) {
-      alert('You can only mark tasks done within ±3 days. Contact admin for older entries.')
+  const toggle = async (taskId:string, date:string, originalAssignee:string, done:boolean, future:boolean) => {
+    if (future && profile.role !== 'admin') {
+      alert('You cannot mark a task done before its due date.')
+      return
+    }
+    const daysOff = Math.abs(dateDiffDays(date, today))
+    if (profile.role !== 'admin' && daysOff > 3 && date < today) {
+      alert('You can only edit tasks within ±3 days (and not before due date). Contact admin.')
       return
     }
     const id = completionDocId(taskId, date, originalAssignee)
@@ -81,41 +88,56 @@ export default function TasksPage(){
     setCompletions(c=>({...c, [id]: !done}))
   }
 
-  const upcoming = rows.filter(r=> r.date >= todayISO())
-  const past = rows.filter(r=> r.date < todayISO())
+  const upcoming = rows.filter(r=> r.date >= today)
+  const past = rows.filter(r=> r.date < today)
 
-  const renderRows = (list:any[]) => list.sort((a,b)=>a.date.localeCompare(b.date)).map(r=>{
+  const totalFine = rows.filter(r=>r.overdue).reduce((s,r)=> s + (r.fine||0), 0)
+
+  const renderRows = (list:any[], allowFutureMsg=true) => list.sort((a,b)=>a.date.localeCompare(b.date)).map(r=>{
     const originalName = assigneeDisplay(r.t.assignType, r.originalAssignee, users, rooms)
     const effectiveName = r.effectiveKind === 'member'
       ? users[r.effectiveId]?.name || r.effectiveId
       : rooms[r.effectiveId]?.name || r.effectiveId
     const swapped = !!r.swap
-    return <tr key={r.compId} className={r.date===todayISO() ? 'bg-indigo-50/50':''}>
-      <td>{r.date}{r.date===todayISO() && ' • Today'}</td>
+    const canClick = !r.future || profile.role === 'admin'
+    return <tr key={r.compId} className={r.date===today ? 'bg-indigo-50/50': r.overdue ? 'bg-red-50/40' : ''}>
+      <td>{r.date}{r.date===today && ' • Today'}</td>
       <td>
         <b>{r.t.title}</b>
         <div className="text-slate-500 text-xs">{r.t.description}</div>
-        {swapped && <div className="text-[11px] text-amber-700">Swapped from {originalName} → {effectiveName}</div>}
+        {swapped && <div className="text-[11px] text-amber-700">Swapped from {originalName}</div>}
+        {r.overdue && <div className="text-[11px] text-red-600 font-bold">Overdue – Fine ৳{r.fine}</div>}
+        {r.future && <div className="text-[11px] text-slate-500">Not due yet</div>}
       </td>
+      <td>{swapped ? effectiveName : originalName}</td>
       <td>
-        {swapped ? effectiveName : originalName}
-        {swapped && <div className="text-[11px] text-slate-500">orig: {originalName}</div>}
+        {r.done ? <span className="pill bg-emerald-100 text-emerald-700">Done</span> :
+         r.overdue ? <span className="pill bg-red-100 text-red-700">Fine ৳{r.fine}</span> :
+         r.future ? <span className="pill bg-slate-200 text-slate-600">Upcoming</span> :
+         <span className="pill bg-orange-100 text-orange-800">Pending</span>}
       </td>
-      <td>{r.done ? <span className="pill bg-emerald-100 text-emerald-700">Done</span> : <span className="pill bg-orange-100 text-orange-800">Pending</span>}</td>
       <td className="whitespace-nowrap">
-        <button className={`btn !py-1.5 !px-3 text-xs ${r.done?'btn-secondary':''}`} onClick={()=>toggle(r.t.id,r.date,r.originalAssignee,r.done)}>{r.done?'Undo':'Mark done'}</button>
-        {!swapped && <a className="btn btn-secondary !py-1.5 !px-3 text-xs ml-2" href={`/swaps?task=${r.t.id}&date=${r.date}`}>Swap</a>}
+        <button
+          className={`btn !py-1.5 !px-3 text-xs ${r.done?'btn-secondary':''} disabled:opacity-40`}
+          disabled={!canClick}
+          title={r.future ? 'Cannot mark done before due date' : ''}
+          onClick={()=>toggle(r.t.id,r.date,r.originalAssignee,r.done, r.future)}
+        >{r.done?'Undo':'Mark done'}</button>
+        {!swapped && !r.done && <a className="btn btn-secondary !py-1.5 !px-3 text-xs ml-2" href={`/swaps?task=${r.t.id}&date=${r.date}`}>Swap</a>}
       </td>
     </tr>
   })
 
   return <AppShell>
-    <h1 className="text-2xl font-extrabold mb-1">My Tasks</h1>
-    <p className="text-slate-500 mb-4">Includes tasks swapped to you. Original assignee is shown for audit. ±3 day edit window.</p>
+    <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
+      <h1 className="text-2xl font-extrabold">My Tasks</h1>
+      {totalFine > 0 && <div className="px-3 py-1.5 rounded-xl bg-red-600 text-white text-sm font-bold">Total Fine: ৳{totalFine}</div>}
+    </div>
+    <p className="text-slate-500 mb-4">You can mark tasks done on the due date only (not before). Missed tasks get fined. Swap audit trail applied.</p>
 
     <div className="card overflow-x-auto mb-4">
       <h3 className="font-bold mb-2">Upcoming & Today</h3>
-      <table className="w-full min-w-[720px]">
+      <table className="w-full min-w-[760px]">
         <thead><tr><th>Date</th><th>Task</th><th>Assignee</th><th>Status</th><th></th></tr></thead>
         <tbody>
           {renderRows(upcoming)}
@@ -126,14 +148,14 @@ export default function TasksPage(){
 
     <div className="card overflow-x-auto">
       <h3 className="font-bold mb-2">Past 7 Days</h3>
-      <table className="w-full min-w-[720px]">
+      <table className="w-full min-w-[760px]">
         <thead><tr><th>Date</th><th>Task</th><th>Assignee</th><th>Status</th><th></th></tr></thead>
         <tbody>
-          {renderRows(past)}
+          {renderRows(past, false)}
           {past.length===0 && <tr><td colSpan={5} className="text-slate-500">No tasks in the past week.</td></tr>}
         </tbody>
       </table>
-      <p className="text-xs text-slate-500 mt-2">You can edit completions within ±3 days. Older entries: contact admin.</p>
+      <p className="text-xs text-slate-500 mt-2">Mark-done is allowed only on/after the due date, and within ±3 days. Overdue unfinished tasks accrue the fine set by admin at task creation. Total fine shown at top-right.</p>
     </div>
   </AppShell>
 }

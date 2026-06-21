@@ -8,6 +8,7 @@ export type TaskDoc = {
   repeat: 'once' | 'daily' | 'weekly' | 'custom'
   intervalDays: number
   startDate: string // YYYY-MM-DD
+  fineAmount?: number // ৳ fine if not completed by due date
 }
 
 export function dateDiffDays(a: string, b: string) {
@@ -42,7 +43,7 @@ export function completionDocId(taskId: string, date: string, assigneeKey: strin
   return `${taskId}_${date}_${assigneeKey}`
 }
 
-// New: get a full rotation preview
+// Get a full rotation preview
 export function getSchedulePreview(task: TaskDoc, days: number = 30, startDate?: string) {
   const start = startDate || todayISO()
   const out: { date: string, assignees: string[] }[] = []
@@ -52,4 +53,19 @@ export function getSchedulePreview(task: TaskDoc, days: number = 30, startDate?:
     if (a.length) out.push({ date: d, assignees: a })
   }
   return out
+}
+
+// Fine helpers
+export function taskIsOverdue(taskDate: string, today: string = todayISO()) {
+  return dateDiffDays(today, taskDate) > 0
+}
+export function taskIsFuture(taskDate: string, today: string = todayISO()) {
+  return dateDiffDays(taskDate, today) > 0
+}
+export function getFineForTask(task: TaskDoc, taskDate: string, done: boolean, today: string = todayISO()) {
+  const fine = task.fineAmount || 0
+  if (fine <= 0) return 0
+  if (done) return 0
+  if (taskIsOverdue(taskDate, today)) return fine
+  return 0
 }

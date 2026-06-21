@@ -10,7 +10,7 @@ type FTask = {
   title:string; description:string; assignType:'member'|'room';
   rotation:'round_robin'|'all';
   repeat:'once'|'daily'|'weekly'|'custom';
-  intervalDays:number; startDate:string; targets:string[]
+  intervalDays:number; startDate:string; targets:string[]; fineAmount:number
 }
 
 export default function AdminTasks(){
@@ -18,7 +18,7 @@ export default function AdminTasks(){
   const [tasks,setTasks] = useState<any[]>([])
   const [users,setUsers] = useState<any[]>([])
   const [rooms,setRooms] = useState<any[]>([])
-  const [f,setF] = useState<FTask>({title:'', description:'', assignType:'member', rotation:'round_robin', repeat:'weekly', intervalDays:7, startDate: new Date().toISOString().slice(0,10), targets: []})
+  const [f,setF] = useState<FTask>({title:'', description:'', assignType:'member', rotation:'round_robin', repeat:'weekly', intervalDays:7, startDate: new Date().toISOString().slice(0,10), targets: [], fineAmount: 50 })
   const [detailTask, setDetailTask] = useState<any|null>(null)
 
   const load = async ()=>{
@@ -56,8 +56,8 @@ export default function AdminTasks(){
 
   const save = async ()=>{
     if(!f.title || f.targets.length===0) return alert('Title + at least 1 target')
-    await addDoc(collection(db,'tasks'), {...f, intervalDays: Number(f.intervalDays)})
-    setF({title:'', description:'', assignType:'member', rotation:'round_robin', repeat:'weekly', intervalDays:7, startDate: new Date().toISOString().slice(0,10), targets: []})
+    await addDoc(collection(db,'tasks'), {...f, intervalDays: Number(f.intervalDays), fineAmount: Number(f.fineAmount)||0 })
+    setF({title:'', description:'', assignType:'member', rotation:'round_robin', repeat:'weekly', intervalDays:7, startDate: new Date().toISOString().slice(0,10), targets: [], fineAmount: 50})
     load()
   }
 
@@ -66,7 +66,6 @@ export default function AdminTasks(){
     if(snap.exists()) setDetailTask({id:snap.id, ...snap.data()})
   }
 
-  // preview schedule for current form
   const preview = f.targets.length ? getSchedulePreview(f as TaskDoc, 28, f.startDate) : []
 
   return <AppShell>
@@ -99,6 +98,9 @@ export default function AdminTasks(){
           </select>
         </div>
         {f.repeat==='custom' && <div><label className="label">Gap days</label><input type="number" className="input" value={f.intervalDays} min={1} onChange={e=>setF({...f, intervalDays: parseInt(e.target.value)||1})} /></div>}
+        <div><label className="label">Late Fine ৳ <span className="text-slate-400 font-normal">(if not done by due date)</span></label>
+          <input type="number" className="input" min={0} value={f.fineAmount} onChange={e=>setF({...f, fineAmount: parseInt(e.target.value)||0})} placeholder="50" />
+        </div>
       </div>
 
       <div className="grid md:grid-cols-2 gap-4 mt-4">
@@ -114,9 +116,9 @@ export default function AdminTasks(){
           </div>
         </div>
         <div>
-          <div className="label">Rotation Order – drag order with ↑↓ ({f.targets.length} selected)</div>
+          <div className="label">Rotation Order – {f.targets.length} selected – first = 1st duty</div>
           <div className="border border-slate-200 rounded-xl p-2 max-h-56 overflow-auto bg-white">
-            {f.targets.length===0 && <div className="text-slate-500 text-sm px-2 py-1">Click names on the left to add them in order. First = 1st duty.</div>}
+            {f.targets.length===0 && <div className="text-slate-500 text-sm px-2 py-1">Click names on the left to add them in order.</div>}
             {f.targets.map((id, idx)=>(
               <div key={id} className="flex items-center justify-between px-2 py-1.5 border-b border-slate-100 last:border-0 text-sm">
                 <span><b className="text-slate-400 mr-2">{idx+1}.</b> {nameOf(id, f.assignType)}</span>
@@ -128,13 +130,12 @@ export default function AdminTasks(){
               </div>
             ))}
           </div>
-          <p className="text-xs text-slate-500 mt-1">Order = duty order. 1st → 2nd → 3rd → loop. Use ↑↓ to reorder.</p>
         </div>
       </div>
 
       {preview.length > 0 && (
         <div className="mt-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
-          <div className="text-xs font-bold text-slate-600 mb-1">Schedule Preview – next {preview.length} occurrences</div>
+          <div className="text-xs font-bold text-slate-600 mb-1">Schedule Preview – next {preview.length} occurrences {f.fineAmount>0 && ` · Fine: ৳${f.fineAmount}`}</div>
           <div className="text-xs text-slate-600 max-h-36 overflow-auto">
             {preview.slice(0,12).map((p,i)=>(
               <div key={p.date}>{p.date} → {p.assignees.map(a=> nameOf(a, f.assignType)).join(', ')}</div>
@@ -149,7 +150,7 @@ export default function AdminTasks(){
 
     <div className="card overflow-x-auto">
       <table className="w-full">
-        <thead><tr><th>Task</th><th>Assign</th><th>Rotation</th><th>Repeat</th><th></th></tr></thead>
+        <thead><tr><th>Task</th><th>Assign</th><th>Rotation</th><th>Repeat</th><th>Fine</th><th></th></tr></thead>
         <tbody>
           {tasks.map((t:any)=> <tr key={t.id} className="hover:bg-slate-50">
             <td>
@@ -161,6 +162,7 @@ export default function AdminTasks(){
             <td className="text-xs">{t.assignType}: {t.targets?.length || 0}</td>
             <td>{t.rotation}</td>
             <td>{t.repeat}{t.repeat==='custom' ? ` / ${t.intervalDays}d` : ''}</td>
+            <td>{t.fineAmount ? `৳${t.fineAmount}` : '—'}</td>
             <td className="whitespace-nowrap">
               <button className="btn btn-secondary !py-1 !px-2 text-xs mr-2" onClick={()=>openDetail(t.id)}>Details</button>
               <button className="btn btn-red !py-1 !px-2 text-xs" onClick={async()=>{ if(confirm('Delete task?')){ await deleteDoc(doc(db,'tasks',t.id)); load()}}}>Delete</button>
@@ -168,7 +170,6 @@ export default function AdminTasks(){
           </tr>)}
         </tbody>
       </table>
-      <p className="text-xs text-slate-500 mt-2">Click a task name / Details button to see full rotation schedule, completions, and edit order.</p>
     </div>
 
     {detailTask && <TaskDetailModal task={detailTask} users={users} rooms={rooms} onClose={()=>{ setDetailTask(null); load()}} />}
@@ -177,6 +178,7 @@ export default function AdminTasks(){
 
 function TaskDetailModal({task, users, rooms, onClose}:{task:any, users:any[], rooms:any[], onClose:()=>void}) {
   const [targets, setTargets] = useState<string[]>(task.targets || [])
+  const [fineAmount, setFineAmount] = useState<number>(task.fineAmount || 0)
   const [saving, setSaving] = useState(false)
   const [completions, setCompletions] = useState<any[]>([])
   const nameOf = (id:string) => {
@@ -193,25 +195,23 @@ function TaskDetailModal({task, users, rooms, onClose}:{task:any, users:any[], r
   }, [task.id])
 
   const move = (idx:number, dir:-1|1) => {
-    const arr = [...targets]
-    const j = idx + dir
+    const arr = [...targets]; const j = idx + dir
     if(j<0 || j>=arr.length) return
-    ;[arr[idx], arr[j]] = [arr[j], arr[idx]]
-    setTargets(arr)
+    ;[arr[idx], arr[j]] = [arr[j], arr[idx]]; setTargets(arr)
   }
   const remove = (id:string) => setTargets(t=>t.filter(x=>x!==id))
 
-  const saveOrder = async () => {
+  const save = async () => {
     setSaving(true)
     const { doc, updateDoc } = await import('firebase/firestore')
     const { db } = await import('@/lib/firebaseClient')
-    await updateDoc(doc(db,'tasks', task.id), { targets })
+    await updateDoc(doc(db,'tasks', task.id), { targets, fineAmount: Number(fineAmount)||0 })
     setSaving(false)
-    alert('Order saved')
+    alert('Saved')
     onClose()
   }
 
-  const preview = getSchedulePreview({...task, targets}, 20, task.startDate)
+  const preview = getSchedulePreview({...task, targets, fineAmount}, 20, task.startDate)
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 grid place-items-center p-4" onClick={onClose}>
@@ -221,13 +221,13 @@ function TaskDetailModal({task, users, rooms, onClose}:{task:any, users:any[], r
           <button onClick={onClose} className="text-slate-500">✕</button>
         </div>
         <div className="text-xs text-slate-600 mb-3">
-          Type: {task.assignType} · Rotation: {task.rotation} · Repeat: {task.repeat}{task.repeat==='custom' ? ` / ${task.intervalDays}d` : ''} · Start: {task.startDate}
+          Type: {task.assignType} · Rotation: {task.rotation} · Repeat: {task.repeat}{task.repeat==='custom' ? ` / ${task.intervalDays}d` : ''} · Start: {task.startDate} · Fine: ৳{task.fineAmount||0}
         </div>
 
         <div className="grid md:grid-cols-2 gap-4">
           <div>
-            <div className="font-bold text-sm mb-1">Rotation Order – click ↑↓ to reorder</div>
-            <div className="border border-slate-200 rounded-xl max-h-64 overflow-auto">
+            <div className="font-bold text-sm mb-1">Rotation Order</div>
+            <div className="border border-slate-200 rounded-xl max-h-56 overflow-auto mb-2">
               {targets.map((id, idx)=>(
                 <div key={id} className="flex items-center justify-between px-3 py-2 border-b border-slate-100 last:border-0 text-sm">
                   <span><b className="text-slate-400 mr-2">{idx+1}.</b> {nameOf(id)}</span>
@@ -239,15 +239,17 @@ function TaskDetailModal({task, users, rooms, onClose}:{task:any, users:any[], r
                 </div>
               ))}
             </div>
-            <button className="btn mt-2 w-full" disabled={saving} onClick={saveOrder}>{saving ? 'Saving…' : 'Save New Order'}</button>
-            <p className="text-xs text-slate-500 mt-1">Changing order affects future duties immediately. Past completions are kept.</p>
+            <label className="label">Late Fine ৳</label>
+            <input type="number" min={0} className="input mb-2" value={fineAmount} onChange={e=>setFineAmount(parseInt(e.target.value)||0)} />
+            <button className="btn w-full" disabled={saving} onClick={save}>{saving ? 'Saving…':'Save Order & Fine'}</button>
+            <p className="text-xs text-slate-500 mt-1">Changing order affects future duties. Past completions are kept.</p>
           </div>
           <div>
             <div className="font-bold text-sm mb-1">Upcoming Schedule</div>
-            <div className="border border-slate-200 rounded-xl p-2 max-h-64 overflow-auto text-xs bg-slate-50">
+            <div className="border border-slate-200 rounded-xl p-2 max-h-48 overflow-auto text-xs bg-slate-50 mb-3">
               {preview.map(p=> <div key={p.date}>{p.date} → {p.assignees.map(a=>nameOf(a)).join(', ')}</div>)}
             </div>
-            <div className="font-bold text-sm mt-3 mb-1">Recent Completions</div>
+            <div className="font-bold text-sm mb-1">Recent Completions</div>
             <div className="border border-slate-200 rounded-xl p-2 max-h-40 overflow-auto text-xs bg-slate-50">
               {completions.slice(0,20).map((c:any,i)=>(
                 <div key={i}>{c.date} · {nameOf(c.assigneeKey)} · {c.done ? '✓ Done' : '✗'} {c.doneBy ? ' by '+(users.find(u=>u.id===c.doneBy)?.name||c.doneBy) : ''}</div>
